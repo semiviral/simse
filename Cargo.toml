@@ -1,0 +1,20 @@
+[package]
+name = "simse"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "*", features = ["derive"] }
+tokio = { version = "*", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+    "parking_lot",
+] }
+config = { version = "*", features = ["yaml"]}
+axum = "*"
+tracing = "*"
+tracing-subscriber = "*"
+notify = "*"
+anyhow = "*"
