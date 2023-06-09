@@ -11,7 +11,10 @@ tokio = { version = "*", default-features = false, features = [
     "macros",
     "rt-multi-thread",
     "parking_lot",
+    "fs",
 ] }
+versions = { version = "*", features = ["serde"] }
+rustls = "*"
 axum = "*"
 tracing = "*"
 tracing-subscriber = "*"

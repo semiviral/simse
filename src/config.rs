@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use versions::SemVer;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -15,10 +16,20 @@ pub enum Password {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct Tls {
+    server_name: String,
+    skip_verify: bool,
+    min_version: SemVer,
+    max_version: SemVer,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Storage {
+    #[serde(flatten)]
     kind: StorageKind,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageKind {
@@ -29,6 +40,7 @@ pub enum StorageKind {
         schema: String,
         username: String,
         password: Password,
+        // tls: Option<Tls>,
     },
 
     Local {
@@ -45,7 +57,6 @@ pub struct Notifier {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SmtpNotifier {
-    require_tls: bool,
     host: String,
     port: u16,
     timeout: usize,
@@ -53,4 +64,5 @@ pub struct SmtpNotifier {
     password: Password,
     sender: String,
     subject: String,
+    // tls: Option<Tls>,
 }
