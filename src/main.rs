@@ -1,3 +1,5 @@
+mod config;
+
 use anyhow::Error;
 use axum::{
     routing::{get, post},
@@ -10,6 +12,11 @@ use tracing::{info, trace};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+
+    let config_str = std::fs::read_to_string("config.toml").unwrap();
+    let config: config::Config = toml::from_str(&config_str).unwrap();
+
+    info!("Config: {:#?}", config);
 
     let mut watcher = notify::recommended_watcher(|res| match res {
         Ok(event) => trace!("FS event fired: {:?}", event),

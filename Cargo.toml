@@ -12,9 +12,9 @@ tokio = { version = "*", default-features = false, features = [
     "rt-multi-thread",
     "parking_lot",
 ] }
-config = { version = "*", features = ["yaml"]}
 axum = "*"
 tracing = "*"
 tracing-subscriber = "*"
 notify = "*"
 anyhow = "*"
+toml = "*"
