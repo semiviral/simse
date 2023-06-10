@@ -1,14 +1,16 @@
 mod config;
+mod notifiers;
 
-use anyhow::{Context, Error, Result};
-use axum::{
-    routing::{get, post},
-    Router,
-};
+use anyhow::{Context, Result};
 use config::Config;
-use notify::Watcher;
-use std::{net::SocketAddr, path::PathBuf};
-use tracing::{info, trace};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tracing::info;
+
+trait AsyncReadWrite: AsyncRead + AsyncWrite {}
+impl<RW: AsyncRead + AsyncWrite> AsyncReadWrite for RW {}
+
+trait AsyncBufReadWriteUnpin: AsyncRead + AsyncWrite + Unpin {}
+impl<RWU: AsyncRead + AsyncWrite + Unpin> AsyncBufReadWriteUnpin for RWU {}
 
 #[tokio::main]
 async fn main() {
@@ -17,26 +19,38 @@ async fn main() {
     let config = read_config().await.unwrap();
     info!("Config: {:#?}", config);
 
-    let mut watcher = notify::recommended_watcher(|res| match res {
-        Ok(event) => trace!("FS event fired: {:?}", event),
-        Err(err) => todo!(),
-    })
-    .unwrap();
-
-    let watch_path = std::path::Path::new("blast");
-    watcher
-        .watch(watch_path, notify::RecursiveMode::Recursive)
-        .unwrap();
-    info!("Watching path for changes: {:?}", watch_path);
-
-    let app = Router::new().route("/", get(root));
-
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3006));
-    info!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    if let Some(smtp_notifier) = config.notifier.smtp {
+        let _smtp = notifiers::smtp::Smtp::new(
+            &smtp_notifier.host,
+            smtp_notifier.port,
+            std::time::Duration::from_secs(smtp_notifier.timeout),
+            smtp_notifier.sender,
+        )
         .await
         .unwrap();
+    }
+
+    // let mut watcher = notify::recommended_watcher(|res| match res {
+    //     Ok(event) => trace!("FS event fired: {:?}", event),
+    //     Err(err) => todo!(),
+    // })
+    // .unwrap();
+
+    // let watch_path = std::path::Path::new("blast");
+    // watcher
+    //     .watch(watch_path, notify::RecursiveMode::Recursive)
+    //     .unwrap();
+    // info!("Watching path for changes: {:?}", watch_path);
+
+    // let app = Router::new().route("/", get(root));
+
+    // let addr = SocketAddr::from(([127, 0, 0, 1], 3006));
+
+    // info!("listening on {}", addr);
+    // axum::Server::bind(&addr)
+    //     .serve(app.into_make_service())
+    //     .await
+    //     .unwrap();
 }
 
 async fn root() -> &'static str {

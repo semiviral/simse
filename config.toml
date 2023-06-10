@@ -1,17 +1,20 @@
+[server]
+address = "0.0.0.0"
+port = 9005
+
 [storage.postgresql]
 host = "postgresql.example.com"
 port = 3434
 database = "simse"
 schema = "public"
 username = "simse"
+password_value = "password"
+# password_file = "path/to/password/file"
 
 # [storage.local]
 # ## Path to the SQLite3 database.
 # path: /example/path/db.sqlite
 
-[storage.postgresql.password]
-# path = "secrets/storage.postgresql.password"
-value = "badpassword"
 
 [notifier]
 startup_check = true
@@ -19,11 +22,9 @@ startup_check = true
 [notifier.smtp]
 host = "smtp.example.com"
 port = 25
-## Connection timeout, in seconds
-timeout = 5
+timeout = 3
 sender = "Notify <notify@example.com>"
-subject = "Simse Notification [{title}]"
-username = "username"
-
-[notifier.smtp.password]
-value = "password"
+subject = "[Simse] {title}"
+username = "notify@example.com"
+password_value = "password"
+# password_file = "path/to/password/file"

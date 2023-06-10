@@ -1,36 +1,48 @@
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use serde::Deserialize;
+use std::{net::Ipv4Addr, path::PathBuf};
 use versions::SemVer;
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Config {
-    storage: Storage,
-    notifier: Notifier,
+use crate::notifiers::smtp::Sender;
+
+fn serde_true() -> bool {
+    true
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
+pub struct Config {
+    pub storage: Storage,
+    pub notifier: Notifier,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Password {
     Value(String),
     Path(PathBuf),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct Tls {
-    server_name: String,
-    skip_verify: bool,
-    min_version: SemVer,
-    max_version: SemVer,
+    pub server_name: String,
+    pub skip_verify: bool,
+    pub min_version: SemVer,
+    pub max_version: SemVer,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
+pub struct Server {
+    pub address: Ipv4Addr,
+    pub port: u16,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Storage {
-    #[serde(flatten)]
-    kind: StorageKind,
+    #[serde(flatten, default)]
+    pub kind: StorageKind,
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageKind {
     PostgreSql {
@@ -39,7 +51,8 @@ pub enum StorageKind {
         database: String,
         schema: String,
         username: String,
-        password: Password,
+        password_value: Option<String>,
+        password_file: Option<PathBuf>,
         // tls: Option<Tls>,
     },
 
@@ -48,21 +61,35 @@ pub enum StorageKind {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Notifier {
-    startup_check: bool,
-    file: Option<String>,
-    smtp: Option<SmtpNotifier>,
+impl Default for StorageKind {
+    fn default() -> Self {
+        Self::Local {
+            path: "storage.db".to_owned(),
+        }
+    }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
+pub struct Notifier {
+    #[serde(default = "serde_true")]
+    pub startup_check: bool,
+
+    #[serde(default)]
+    pub file: Option<String>,
+
+    #[serde(default)]
+    pub smtp: Option<SmtpNotifier>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SmtpNotifier {
-    host: String,
-    port: u16,
-    timeout: usize,
-    username: String,
-    password: Password,
-    sender: String,
-    subject: String,
+    pub host: String,
+    pub port: u16,
+    pub timeout: u64,
+    pub username: String,
+    pub password_value: Option<String>,
+    pub password_file: Option<PathBuf>,
+    pub sender: Sender,
+    pub subject: String,
     // tls: Option<Tls>,
 }
