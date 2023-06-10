@@ -7,17 +7,23 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "*", features = ["derive"] }
+versions = { version = "*", features = ["serde"] }
 tokio = { version = "*", default-features = false, features = [
     "macros",
     "rt-multi-thread",
     "parking_lot",
     "fs",
+    "net",
+    "io-util",
 ] }
-versions = { version = "*", features = ["serde"] }
-rustls = "*"
+tokio-rustls = "*"
+webpki-roots = "*"
 axum = "*"
 tracing = "*"
 tracing-subscriber = "*"
 notify = "*"
 anyhow = "*"
 toml = "*"
+gethostname = "*"
+regex = "*"
+once_cell = "*"
