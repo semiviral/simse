@@ -8,6 +8,16 @@ edition = "2021"
 [dependencies]
 serde = { version = "*", features = ["derive"] }
 versions = { version = "*", features = ["serde"] }
+lettre = { version = "*", default-features = false, features = [
+    "builder",
+    "smtp-transport",
+    "hostname",
+    "rustls-tls",
+    "tokio1-rustls-tls",
+    "async-std1-rustls-tls",
+    "serde",
+    "tracing",
+] }
 tokio = { version = "*", default-features = false, features = [
     "macros",
     "rt-multi-thread",
@@ -27,3 +37,5 @@ toml = "*"
 gethostname = "*"
 regex = "*"
 once_cell = "*"
+chrono = "*"
+base64 = "*"

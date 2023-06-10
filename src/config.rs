@@ -1,8 +1,7 @@
+use lettre::message::Mailbox;
 use serde::Deserialize;
 use std::{net::Ipv4Addr, path::PathBuf};
 use versions::SemVer;
-
-use crate::notifiers::smtp::Sender;
 
 fn serde_true() -> bool {
     true
@@ -51,8 +50,7 @@ pub enum StorageKind {
         database: String,
         schema: String,
         username: String,
-        password_value: Option<String>,
-        password_file: Option<PathBuf>,
+        password: Option<String>,
         // tls: Option<Tls>,
     },
 
@@ -73,23 +71,29 @@ impl Default for StorageKind {
 pub struct Notifier {
     #[serde(default = "serde_true")]
     pub startup_check: bool,
-
-    #[serde(default)]
-    pub file: Option<String>,
-
+    
     #[serde(default)]
     pub smtp: Option<SmtpNotifier>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SmtpTlsMode {
+    StartTls,
+    ForceTls,
+    Off,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SmtpNotifier {
     pub host: String,
     pub port: u16,
+    pub tls: SmtpTlsMode,
     pub timeout: u64,
     pub username: String,
-    pub password_value: Option<String>,
-    pub password_file: Option<PathBuf>,
-    pub sender: Sender,
+    pub password: Option<String>,
+    pub to: Mailbox,
+    pub from: Mailbox,
     pub subject: String,
     // tls: Option<Tls>,
 }

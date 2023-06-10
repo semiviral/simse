@@ -3,6 +3,10 @@ mod notifiers;
 
 use anyhow::{Context, Result};
 use config::Config;
+use lettre::{
+    message::header::ContentType, transport::smtp::authentication::Credentials, Message,
+    SmtpTransport, Transport,
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::info;
 
@@ -20,15 +24,53 @@ async fn main() {
     info!("Config: {:#?}", config);
 
     if let Some(smtp_notifier) = config.notifier.smtp {
-        let _smtp = notifiers::smtp::Smtp::new(
-            &smtp_notifier.host,
-            smtp_notifier.port,
-            std::time::Duration::from_secs(smtp_notifier.timeout),
-            smtp_notifier.sender,
-        )
-        .await
-        .unwrap();
-}
+        let message = Message::builder()
+            .from(smtp_notifier.from)
+            .to(smtp_notifier.to)
+            .subject(notifiers::smtp::format_subject_title(
+                &smtp_notifier.subject,
+                "Test Email",
+            ))
+            .header(ContentType::TEXT_PLAIN)
+            .body(String::from(
+                "This is a test line
+This is another test line
+Goodbye",
+            ))
+            .unwrap();
+
+        let smtp = SmtpTransport::starttls_relay(&smtp_notifier.host)
+            .unwrap()
+            .port(smtp_notifier.port)
+            .credentials(Credentials::new(
+                smtp_notifier.username,
+                smtp_notifier.password.unwrap(),
+            ))
+            .build();
+
+        smtp.send(&message).unwrap();
+
+        // let mut smtp = notifiers::smtp::Smtp::new(
+        //     &smtp_notifier.host,
+        //     smtp_notifier.port,
+        //     smtp_notifier.tls,
+        //     std::time::Duration::from_secs(smtp_notifier.timeout),
+        //     smtp_notifier.from,
+        //     smtp_notifier.subject,
+        // )
+        // .await
+        // .unwrap();
+
+        // smtp.authenticate(
+        //     smtp_notifier.username.as_deref(),
+        //     &smtp_notifier.password.unwrap(),
+        // )
+        // .await
+        // .unwrap();
+        // smtp.send_mail(smtp_notifier.to, None, "No Title")
+        //     .await
+        //     .unwrap();
+    }
 
     // let mut watcher = notify::recommended_watcher(|res| match res {
     //     Ok(event) => trace!("FS event fired: {:?}", event),

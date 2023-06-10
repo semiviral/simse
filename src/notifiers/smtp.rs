@@ -1,5 +1,6 @@
-use crate::AsyncBufReadWriteUnpin;
+use crate::{config::SmtpTlsMode, AsyncBufReadWriteUnpin};
 use anyhow::{anyhow, bail, Context, Result};
+use base64::Engine;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{
@@ -7,8 +8,8 @@ use serde::{
     Deserialize,
 };
 use std::{
+    borrow::Cow,
     net::{SocketAddr, ToSocketAddrs},
-    num::NonZeroUsize,
     time::Duration,
 };
 use tokio::{
@@ -16,7 +17,7 @@ use tokio::{
     net::TcpStream,
     time::timeout,
 };
-use tracing::{info, warn};
+use tracing::info;
 
 pub static SENDER_VALIDATOR: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^(?P<name>[\w]+) <(?P<local>[\w\-\.]+)@(?P<domain>(?:[\w-]+\.)+[\w-]{2,})>$")
@@ -26,399 +27,430 @@ pub static EMAIL_VALIDATOR: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^(?P<local>[\w\-\.]+)@(?P<domain>(?:[\w-]+\.)+[\w-]{2,})$")
         .expect("failed to compile email validator regex")
 });
+pub static SUBJECT_REPLACER: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?P<title>\{title\})").expect("failed to compile subject replacer regex")
+});
 
-#[derive(Debug)]
-pub struct Sender {
-    name: String,
-    email: Email,
+pub fn format_subject_title<'a>(subject: &'a str, title: &str) -> Cow<'a, str> {
+    let Some(captures) = SUBJECT_REPLACER.captures(subject)
+    else {
+        return Cow::Borrowed(subject)
+    };
+
+    let Some(title_match) = captures.name("title")
+    else {
+        return Cow::Borrowed(subject);
+    };
+
+    let mut new_subject = String::new();
+    new_subject.push_str(&subject[..title_match.start()]);
+    new_subject.push_str(title);
+    new_subject.push_str(&subject[title_match.end()..]);
+
+    Cow::Owned(new_subject)
 }
 
-impl Sender {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
+// #[derive(Debug)]
+// pub struct Identity {
+//     name: String,
+//     email: Email,
+// }
 
-    pub const fn email(&self) -> &Email {
-        &self.email
-    }
-}
+// impl Identity {
+//     pub fn name(&self) -> &str {
+//         &self.name
+//     }
 
-impl std::fmt::Display for Sender {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{} <{}>", self.name(), self.email()))
-    }
-}
+//     pub const fn email(&self) -> &Email {
+//         &self.email
+//     }
+// }
 
-impl<'de> Deserialize<'de> for Sender {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_string(SenderVisitor)
-    }
-}
+// impl std::fmt::Display for Identity {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.write_fmt(format_args!("{} <{}>", self.name(), self.email()))
+//     }
+// }
 
-struct SenderVisitor;
-impl<'de> Visitor<'de> for SenderVisitor {
-    type Value = Sender;
+// impl<'de> Deserialize<'de> for Identity {
+//     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+//     where
+//         D: serde::Deserializer<'de>,
+//     {
+//         deserializer.deserialize_string(IdentityVisitor)
+//     }
+// }
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a formatted sender: \"Sender <sender@example.com>\"")
-    }
+// struct IdentityVisitor;
+// impl<'de> Visitor<'de> for IdentityVisitor {
+//     type Value = Identity;
 
-    fn visit_string<E>(self, v: String) -> std::result::Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        self.visit_str(&v)
-    }
+//     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+//         formatter.write_str("a formatted sender: \"Sender <sender@example.com>\"")
+//     }
 
-    fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        let captures = SENDER_VALIDATOR
-            .captures(v)
-            .ok_or(Error::custom("value is in incorrect format"))?;
-        let name = captures.name("name").unwrap();
-        let local = captures.name("local").unwrap();
-        let domain = captures.name("domain").unwrap();
+//     fn visit_string<E>(self, v: String) -> std::result::Result<Self::Value, E>
+//     where
+//         E: Error,
+//     {
+//         self.visit_str(&v)
+//     }
 
-        Ok(Sender {
-            name: name.as_str().to_string(),
-            email: Email {
-                local: local.as_str().to_string(),
-                domain: domain.as_str().to_string(),
-            },
-        })
-    }
-}
+//     fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
+//     where
+//         E: Error,
+//     {
+//         let captures = SENDER_VALIDATOR
+//             .captures(v)
+//             .ok_or(Error::custom("value is in incorrect format"))?;
+//         let name = captures.name("name").unwrap();
+//         let local = captures.name("local").unwrap();
+//         let domain = captures.name("domain").unwrap();
 
-#[derive(Debug)]
-pub struct Email {
-    local: String,
-    domain: String,
-}
+//         Ok(Identity {
+//             name: name.as_str().to_string(),
+//             email: Email {
+//                 local: local.as_str().to_string(),
+//                 domain: domain.as_str().to_string(),
+//             },
+//         })
+//     }
+// }
 
-impl Email {
-    pub fn new(email: &str) -> Result<Self> {
-        let captures = EMAIL_VALIDATOR.captures(email).ok_or(anyhow!(
-            "provided email could not be validated: {:?}",
-            email
-        ))?;
-        let local = captures.name("local").ok_or(anyhow!(
-            "provided email does not have local part: {:?}",
-            email
-        ))?;
-        let domain = captures.name("domain").ok_or(anyhow!(
-            "provided email does not have domain part: {:?}",
-            email
-        ))?;
+// #[derive(Debug)]
+// pub struct Email {
+//     local: String,
+//     domain: String,
+// }
 
-        Ok(Self {
-            local: local.as_str().to_owned(),
-            domain: domain.as_str().to_owned(),
-        })
-    }
+// impl Email {
+//     pub fn new(email: &str) -> Result<Self> {
+//         let captures = EMAIL_VALIDATOR.captures(email).ok_or(anyhow!(
+//             "provided email could not be validated: {:?}",
+//             email
+//         ))?;
+//         let local = captures.name("local").ok_or(anyhow!(
+//             "provided email does not have local part: {:?}",
+//             email
+//         ))?;
+//         let domain = captures.name("domain").ok_or(anyhow!(
+//             "provided email does not have domain part: {:?}",
+//             email
+//         ))?;
 
-    #[inline]
-    pub fn local(&self) -> &str {
-        &self.local
-    }
+//         Ok(Self {
+//             local: local.as_str().to_owned(),
+//             domain: domain.as_str().to_owned(),
+//         })
+//     }
 
-    #[inline]
-    pub fn domain(&self) -> &str {
-        &self.domain
-    }
-}
+//     #[inline]
+//     pub fn local(&self) -> &str {
+//         &self.local
+//     }
 
-impl std::fmt::Display for Email {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}@{}", self.local(), self.domain()))
-    }
-}
+//     #[inline]
+//     pub fn domain(&self) -> &str {
+//         &self.domain
+//     }
+// }
 
-impl<'de> Deserialize<'de> for Email {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_string(EmailVisitor)
-    }
-}
+// impl std::fmt::Display for Email {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.write_fmt(format_args!("{}@{}", self.local(), self.domain()))
+//     }
+// }
 
-struct EmailVisitor;
-impl<'de> Visitor<'de> for EmailVisitor {
-    type Value = Email;
+// impl<'de> Deserialize<'de> for Email {
+//     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+//     where
+//         D: serde::Deserializer<'de>,
+//     {
+//         deserializer.deserialize_string(EmailVisitor)
+//     }
+// }
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a formatted email: \"sender@example.com\"")
-    }
+// struct EmailVisitor;
+// impl<'de> Visitor<'de> for EmailVisitor {
+//     type Value = Email;
 
-    fn visit_string<E>(self, v: String) -> std::result::Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        self.visit_str(&v)
-    }
+//     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+//         formatter.write_str("a formatted email: \"sender@example.com\"")
+//     }
 
-    fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        let captures = EMAIL_VALIDATOR
-            .captures(v)
-            .ok_or(Error::custom("value is in incorrect format"))?;
+//     fn visit_string<E>(self, v: String) -> std::result::Result<Self::Value, E>
+//     where
+//         E: Error,
+//     {
+//         self.visit_str(&v)
+//     }
 
-        let local = captures.name("local").unwrap();
-        let domain = captures.name("domain").unwrap();
+//     fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
+//     where
+//         E: Error,
+//     {
+//         let captures = EMAIL_VALIDATOR
+//             .captures(v)
+//             .ok_or(Error::custom("value is in incorrect format"))?;
 
-        Ok(Email {
-            local: local.as_str().to_string(),
-            domain: domain.as_str().to_string(),
-        })
-    }
-}
+//         let local = captures.name("local").unwrap();
+//         let domain = captures.name("domain").unwrap();
 
-pub struct Smtp {
-    stream: BufStream<Box<dyn AsyncBufReadWriteUnpin>>,
-    response_buf: String,
-    mime: bool,
-    auth: bool,
-    chunking: bool,
-    dsn: bool,
-    pipelining: bool,
-    starttls: bool,
-    smtputf8: bool,
-    size: Option<NonZeroUsize>,
-    net_timeout: Duration,
-    sender: Sender,
-}
+//         Ok(Email {
+//             local: local.as_str().to_string(),
+//             domain: domain.as_str().to_string(),
+//         })
+//     }
+// }
 
-impl Smtp {
-    const SMTP_RDY: &str = "220";
-    const SMTP_OK: &str = "250";
+// pub struct Smtp {
+//     stream: BufStream<Box<dyn AsyncBufReadWriteUnpin>>,
+//     response_buf: String,
+//     net_timeout: Duration,
+//     sender: Identity,
+//     subject: String,
+// }
 
-    async fn read_line<R: AsyncBufRead + Unpin>(
-        stream: &mut R,
-        response_buf: &mut String,
-    ) -> Result<()> {
-        response_buf.clear();
-        stream.read_line(response_buf).await?;
-        info!("SMTP IN: {:?}", response_buf);
+// impl Smtp {
+//     const SMTP_RDY: &str = "220";
+//     const SMTP_OK: &str = "250";
 
-        Ok(())
-    }
+    
 
-    async fn write_line<R: AsyncWrite + Unpin>(stream: &mut R, line: &str) -> Result<()> {
-        stream.write_all(line.as_bytes()).await?;
+//     async fn read_line_from<R: AsyncBufRead + Unpin>(
+//         stream: &mut R,
+//         response_buf: &mut String,
+//         net_timeout: Duration,
+//     ) -> Result<()> {
+//         response_buf.clear();
+//         timeout(net_timeout, stream.read_line(response_buf)).await??;
+//         info!("SMTP IN: {:?}", response_buf);
 
-        if !line.ends_with('\n') && !line.ends_with("\r\n") {
-            stream.write_all(b"\r\n").await?;
-        }
+//         Ok(())
+//     }
 
-        stream.flush().await?;
-        info!("SMTP OUT: {:?}", line);
+//     async fn write_line_to<R: AsyncWrite + Unpin>(
+//         stream: &mut R,
+//         line: &str,
+//         net_timeout: Duration,
+//     ) -> Result<()> {
+//         stream.write_all(line.as_bytes()).await?;
 
-        Ok(())
-    }
+//         if !line.ends_with('\n') && !line.ends_with("\r\n") {
+//             stream.write_all(b"\r\n").await?;
+//         }
 
-    pub async fn new(host: &str, port: u16, net_timeout: Duration, sender: Sender) -> Result<Self> {
-        let address = format!("{}:{}", host, port);
-        let socket_addrs: Box<[SocketAddr]> = address
-            .to_socket_addrs()
-            .with_context(|| "DNS query returned no results")?
-            .collect();
+//         timeout(net_timeout, stream.flush()).await??;
 
-        info!("Attempting to connect to SMTP notifier: {}", address);
-        let mut stream = timeout(net_timeout, TcpStream::connect(&*socket_addrs)).await??;
-        let mut stream_buf = BufStream::new(&mut stream);
-        let mut response_buf = String::with_capacity(1024);
+//         info!("SMTP OUT: {:?}", line);
 
-        let mut mime = false;
-        let mut auth = false;
-        let mut chunking = false;
-        let mut dsn = false;
-        let mut pipelining = false;
-        let mut starttls = false;
-        let mut smtputf8 = false;
-        let mut size = 0;
+//         Ok(())
+//     }
 
-        // Wait for ready
-        info!("Waiting for SMTP 220 Service Ready signal.");
-        Self::read_line(&mut stream_buf, &mut response_buf).await?;
-        if !response_buf.starts_with(Self::SMTP_RDY) {
-            bail!("Expected SMTP ready, got: {:?}", &response_buf);
-        }
+//     async fn do_ehlo<RW: AsyncBufRead + AsyncWrite + Unpin>(
+//         stream: &mut RW,
+//         response_buf: &mut String,
+//         net_timeout: Duration,
+//     ) -> Result<()> {
+//         static EHLO_MSG: Lazy<String> =
+//             Lazy::new(|| format!("EHLO {}", gethostname::gethostname().to_string_lossy()));
 
-        // Send EHLO to inform server we are ready
-        Self::write_line(
-            &mut stream_buf,
-            &format!("EHLO {}", gethostname::gethostname().to_string_lossy()),
-        )
-        .await?;
-        // Wait for reply hello
-        Self::read_line(&mut stream_buf, &mut response_buf).await?;
-        if !response_buf.starts_with(Self::SMTP_OK) {
-            bail!(
-                "expected SMTP Hello from server, instead got: {:?}",
-                &response_buf
-            );
-        }
+//         // Send EHLO to inform server we are ready
+//         Self::write_line_to(stream, &EHLO_MSG, net_timeout).await?;
+//         stream.flush().await?;
 
-        loop {
-            let timeout_result = timeout(
-                net_timeout,
-                Smtp::read_line(&mut stream_buf, &mut response_buf),
-            )
-            .await;
-            let Ok(Ok(_)) = timeout_result else { break };
+//         // Wait for reply hello
+//         Self::read_line_from(stream, response_buf, net_timeout).await?;
+//         if !response_buf.starts_with(Self::SMTP_OK) {
+//             bail!(
+//                 "expected SMTP Hello from server, instead got: {:?}",
+//                 &response_buf
+//             );
+//         }
 
-            let Some((code, value)) = response_buf.split_once(|c| c == ' ' || c == '-') else {
-                warn!("Unrecognized SMTP response: {:?}", &response_buf);
-                break;
-            };
+//         // Cycle through capabilities; we don't care, they're specified by the user in the config.
+//         while Self::read_line_from(stream, response_buf, Duration::from_secs(1))
+//             .await
+//             .is_ok()
+//         {}
 
-            if code != Self::SMTP_OK {
-                bail!("Unrecognized SMTP response: {:?}", &response_buf);
-            }
+//         Ok(())
+//     }
 
-            if value.starts_with("AUTH") {
-                auth = true;
-            } else if value.starts_with("8BITMIME") {
-                mime = true;
-            } else if value.starts_with("PIPELINING") {
-                pipelining = true;
-            } else if value.starts_with("CHUNKING") {
-                chunking = true;
-            } else if value.starts_with("DSN") {
-                dsn = true;
-            } else if value.starts_with("STARTTLS") {
-                starttls = true;
-            } else if value.starts_with("SMTPUTF8") {
-                smtputf8 = true;
-            } else if value.starts_with("SIZE") {
-                if let Some((_, num_str)) = value.split_once(' ') {
-                    let Ok(size_value) = num_str.parse()
-                    else {
-                        warn!("SMTP 'SIZE' capability provided invalid size: {:?}", num_str);
-                        continue
-                    };
+//     pub async fn new(
+//         host: &str,
+//         port: u16,
+//         tls: SmtpTlsMode,
+//         net_timeout: Duration,
+//         sender: Identity,
+//         subject: String,
+//     ) -> Result<Self> {
+//         let address = format!("{}:{}", host, port);
+//         let socket_addrs: Box<[SocketAddr]> = address
+//             .to_socket_addrs()
+//             .with_context(|| "DNS query returned no results")?
+//             .collect();
 
-                    size = size_value
-                }
-            }
-        }
+//         info!("Attempting to connect to SMTP notifier: {}", address);
+//         let mut stream = timeout(net_timeout, TcpStream::connect(&*socket_addrs)).await??;
+//         let mut stream_buf = BufStream::new(&mut stream);
+//         let mut response_buf = String::with_capacity(1024);
 
-        let stream: Box<dyn AsyncBufReadWriteUnpin> = if starttls {
-            use tokio_rustls::{
-                rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName},
-                TlsConnector,
-            };
+//         // Wait for ready
+//         info!("Waiting for SMTP 220 Service Ready signal.");
+//         Self::read_line_from(&mut stream_buf, &mut response_buf, net_timeout).await?;
+//         if !response_buf.starts_with(Self::SMTP_RDY) {
+//             bail!("Expected SMTP ready, got: {:?}", &response_buf);
+//         }
 
-            let mut root_store = RootCertStore::empty();
-            root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
-                |ta| {
-                    OwnedTrustAnchor::from_subject_spki_name_constraints(
-                        ta.subject,
-                        ta.spki,
-                        ta.name_constraints,
-                    )
-                },
-            ));
-            let config = ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
-            let server_name = ServerName::try_from(host)?;
+//         Self::do_ehlo(&mut stream_buf, &mut response_buf, net_timeout).await?;
 
-            Self::write_line(&mut stream_buf, "STARTTLS").await?;
-            // Wait for STARTTLS ready from server
-            Self::read_line(&mut stream_buf, &mut response_buf).await?;
-            if !response_buf.starts_with(Self::SMTP_RDY) {
-                bail!("Expected SMTP ready, got: {:?}", &response_buf);
-            }
+//         let stream: Box<dyn AsyncBufReadWriteUnpin> = {
+//             match tls {
+//                 SmtpTlsMode::StartTls => {
+//                     use tokio_rustls::{
+//                         rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName},
+//                         TlsConnector,
+//                     };
 
-            let connector = TlsConnector::from(std::sync::Arc::new(config));
-            drop(stream_buf);
-            let stream = connector.connect(server_name, stream).await?;
-            info!("SMTP TLS connection established.");
+//                     let mut root_store = RootCertStore::empty();
+//                     root_store.add_server_trust_anchors(
+//                         webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+//                             OwnedTrustAnchor::from_subject_spki_name_constraints(
+//                                 ta.subject,
+//                                 ta.spki,
+//                                 ta.name_constraints,
+//                             )
+//                         }),
+//                     );
+//                     let config = ClientConfig::builder()
+//                         .with_safe_defaults()
+//                         .with_root_certificates(root_store)
+//                         .with_no_client_auth();
+//                     let server_name = ServerName::try_from(host)?;
 
-            Box::new(stream)
-        } else {
-            drop(stream_buf);
-            Box::new(stream)
-        };
+//                     Self::write_line_to(&mut stream_buf, "STARTTLS", net_timeout).await?;
+//                     stream_buf.flush().await?;
+//                     // Wait for STARTTLS ready from server
+//                     Self::read_line_from(&mut stream_buf, &mut response_buf, net_timeout).await?;
+//                     if !response_buf.starts_with(Self::SMTP_RDY) {
+//                         bail!("Expected SMTP ready, got: {:?}", &response_buf);
+//                     }
 
-        Ok(Self {
-            stream: BufStream::new(stream),
-            response_buf,
-            mime,
-            auth,
-            chunking,
-            dsn,
-            pipelining,
-            starttls,
-            smtputf8,
-            size: NonZeroUsize::new(size),
-            net_timeout,
-            sender,
-        })
-    }
+//                     let connector = TlsConnector::from(std::sync::Arc::new(config));
+//                     drop(stream_buf);
+//                     let mut stream = connector.connect(server_name, stream).await?;
+//                     info!("SMTP TLS connection established.");
 
-    #[inline]
-    pub const fn has_8bitmime(&self) -> bool {
-        self.mime
-    }
+//                     let mut stream_buf = BufStream::new(&mut stream);
+//                     Self::do_ehlo(&mut stream_buf, &mut response_buf, net_timeout).await?;
+//                     drop(stream_buf);
 
-    #[inline]
-    pub const fn has_auth(&self) -> bool {
-        self.auth
-    }
+//                     Box::new(stream)
+//                 }
 
-    #[inline]
-    pub const fn has_chunking(&self) -> bool {
-        self.chunking
-    }
+//                 SmtpTlsMode::ForceTls => todo!(),
 
-    #[inline]
-    pub const fn has_dsn(&self) -> bool {
-        self.dsn
-    }
+//                 SmtpTlsMode::Off => Box::new(stream),
+//             }
+//         };
 
-    #[inline]
-    pub const fn has_pipelining(&self) -> bool {
-        self.pipelining
-    }
+//         Ok(Self {
+//             stream: BufStream::new(stream),
+//             response_buf,
+//             net_timeout,
+//             sender,
+//             subject,
+//         })
+//     }
 
-    #[inline]
-    pub const fn has_size(&self) -> Option<NonZeroUsize> {
-        self.size
-    }
+//     pub async fn read_line(&mut self) -> Result<()> {
+//         Self::read_line_from(&mut self.stream, &mut self.response_buf, self.net_timeout).await?;
 
-    #[inline]
-    pub const fn has_starttls(&self) -> bool {
-        self.starttls
-    }
+//         Ok(())
+//     }
 
-    #[inline]
-    pub const fn has_smtputf8(&self) -> bool {
-        self.smtputf8
-    }
+//     pub async fn write_line(&mut self, s: &str) -> Result<()> {
+//         Self::write_line_to(&mut self.stream, s, self.net_timeout).await?;
 
-    async fn wait_ok(&mut self) -> Result<()> {
-        timeout(
-            self.net_timeout,
-            Self::read_line(&mut self.stream, &mut self.response_buf),
-        )
-        .await??;
+//         Ok(())
+//     }
 
-        if self.response_buf.starts_with(Self::SMTP_OK) {
-            Ok(())
-        } else {
-            Err(anyhow!("did not recieve OK from SMTP server"))
-        }
-    }
+//     async fn wait_code(&mut self, code: usize) -> Result<()> {
+//         self.read_line().await?;
 
-    pub async fn send_mail() {}
-}
+//         let code_str = code.to_string();
+//         if self.response_buf.starts_with(&code_str) {
+//             Ok(())
+//         } else {
+//             Err(anyhow!("unexpected SMTP code: {:?}", self.response_buf))
+//         }
+//     }
+
+//     pub async fn authenticate(&mut self, username: Option<&str>, password: &str) -> Result<()> {
+//         use base64::engine::general_purpose;
+
+//         let auth_data = general_purpose::STANDARD.encode(if let Some(username) = username {
+//             format!("\0{}\0{}", username, password)
+//         } else {
+//             password.to_string()
+//         });
+
+//         self.write_line(&format!("AUTH PLAIN {}", auth_data))
+//             .await?;
+
+//         self.wait_code(235).await?;
+
+//         Ok(())
+//     }
+
+//     pub async fn send_mail(
+//         &mut self,
+//         to: Identity,
+//         cc: Option<&[Email]>,
+//         title: &str,
+//     ) -> Result<()> {
+//         let cc = cc.unwrap_or_default();
+
+//         self.write_line(&format!("MAIL FROM:<{}>", self.sender.email()))
+//             .await?;
+//         self.wait_code(250).await?;
+
+//         self.write_line(&format!("RCPT TO:<{}>", to)).await?;
+//         self.wait_code(250).await?;
+
+//         for email in cc {
+//             self.write_line(&format!("RCPT TO:<{}>", email)).await?;
+//             self.wait_code(250).await?;
+//         }
+
+//         self.write_line("DATA").await?;
+//         self.wait_code(354).await?;
+
+//         self.write_line(&format!("From: {}", self.sender,)).await?;
+//         self.write_line(&format!("To: {}", to)).await?;
+
+//         for email in cc {
+//             self.write_line(&format!("Cc: {}", email)).await?;
+//         }
+
+//         self.write_line(&format!("Date: {}", chrono::Utc::now()))
+//             .await?;
+//         self.write_line(&format!(
+//             "Subject: {}",
+//             Self::format_subject_title(&self.subject, title)
+//         ))
+//         .await?;
+
+//         self.write_line("").await?;
+//         self.write_line("This is some test data.").await?;
+//         self.write_line("This is some more test data.").await?;
+//         self.write_line("").await?;
+//         self.write_line(".").await?;
+//         self.wait_code(250).await?;
+
+//         self.write_line("QUIT").await?;
+
+//         Ok(())
+//     }
+// }
