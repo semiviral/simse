@@ -1,0 +1,7 @@
+{
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.showUnlinkedFileNotification": false,
+}
