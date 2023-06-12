@@ -3,7 +3,11 @@ name = "simse"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies.simse_config]
+path = "../simse_config"
+
 [dependencies]
+yew = { version = "*", features = ["csr"] }
 serde = { version = "*", features = ["derive"] }
 versions = { version = "*", features = ["serde"] }
 lettre = { version = "*", default-features = false, features = [
@@ -29,10 +33,9 @@ axum = "*"
 tracing = "*"
 tracing-subscriber = "*"
 notify = "*"
-anyhow = "*"
-toml = "*"
-gethostname = "*"
 regex = "*"
 once_cell = "*"
 chrono = "*"
 base64 = "*"
+anyhow = "*"
+toml = "*"

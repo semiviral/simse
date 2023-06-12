@@ -6,7 +6,7 @@ license = "AGPL-3.0-only"
 
 
 [workspace]
-members = ["simse-server"]
+members = ["simse", "simse_config"]
 resolver = "2"
 
 [profile.dev]
