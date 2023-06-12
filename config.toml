@@ -16,10 +16,10 @@ password_value = "password"
 # path: /example/path/db.sqlite
 
 
-[notifier]
+[notifiers]
 startup_check = true
 
-[notifier.smtp]
+[notifiers.smtp]
 host = "smtp.example.com"
 port = 25
 timeout = 3

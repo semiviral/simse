@@ -9,8 +9,9 @@ fn serde_true() -> bool {
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    pub server: Server,
     pub storage: Storage,
-    pub notifier: Notifier,
+    pub notifiers: Notifiers,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,10 +69,10 @@ impl Default for StorageKind {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Notifier {
+pub struct Notifiers {
     #[serde(default = "serde_true")]
     pub startup_check: bool,
-    
+
     #[serde(default)]
     pub smtp: Option<SmtpNotifier>,
 }

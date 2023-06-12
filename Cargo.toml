@@ -14,7 +14,6 @@ lettre = { version = "*", default-features = false, features = [
     "hostname",
     "rustls-tls",
     "tokio1-rustls-tls",
-    "async-std1-rustls-tls",
     "serde",
     "tracing",
 ] }

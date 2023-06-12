@@ -3,12 +3,16 @@ mod notifiers;
 
 use anyhow::{Context, Result};
 use config::Config;
-use lettre::{
-    message::header::ContentType, transport::smtp::authentication::Credentials, Message,
-    SmtpTransport, Transport,
-};
+use once_cell::sync::OnceCell;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tracing::info;
+use tracing::trace;
+
+static CONFIG: OnceCell<Config> = OnceCell::new();
+
+fn get_config() -> &'static Config {
+    CONFIG.get().unwrap()
+}
 
 trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 impl<RW: AsyncRead + AsyncWrite> AsyncReadWrite for RW {}
@@ -20,56 +24,33 @@ impl<RWU: AsyncRead + AsyncWrite + Unpin> AsyncBufReadWriteUnpin for RWU {}
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let config = read_config().await.unwrap();
-    info!("Config: {:#?}", config);
+    CONFIG
+        .set({
+            let config = read_config().await.unwrap();
+            trace!("Config: {:#?}", config);
 
-    if let Some(smtp_notifier) = config.notifier.smtp {
-        let message = Message::builder()
-            .from(smtp_notifier.from)
-            .to(smtp_notifier.to)
-            .subject(notifiers::smtp::format_subject_title(
-                &smtp_notifier.subject,
-                "Test Email",
-            ))
-            .header(ContentType::TEXT_PLAIN)
-            .body(String::from(
-                "This is a test line
-This is another test line
-Goodbye",
-            ))
-            .unwrap();
+            config
+        })
+        .unwrap();
 
-        let smtp = SmtpTransport::starttls_relay(&smtp_notifier.host)
-            .unwrap()
-            .port(smtp_notifier.port)
-            .credentials(Credentials::new(
-                smtp_notifier.username,
-                smtp_notifier.password.unwrap(),
-            ))
-            .build();
+    if notifiers::spawn_notifier().is_err() {
+        tracing::error!(
+            "Failed to spawn notifier task; this is likely because it has already been spawned."
+        );
+    }
 
-        smtp.send(&message).unwrap();
+    notifiers::send_notification(
+        notifiers::Notification {
+            title: String::from("Test Title"),
+            body: String::from("es body\r\na body of \r\ngoodBye"),
+        },
+        Duration::from_secs(3),
+    )
+    .await
+    .unwrap();
 
-        // let mut smtp = notifiers::smtp::Smtp::new(
-        //     &smtp_notifier.host,
-        //     smtp_notifier.port,
-        //     smtp_notifier.tls,
-        //     std::time::Duration::from_secs(smtp_notifier.timeout),
-        //     smtp_notifier.from,
-        //     smtp_notifier.subject,
-        // )
-        // .await
-        // .unwrap();
-
-        // smtp.authenticate(
-        //     smtp_notifier.username.as_deref(),
-        //     &smtp_notifier.password.unwrap(),
-        // )
-        // .await
-        // .unwrap();
-        // smtp.send_mail(smtp_notifier.to, None, "No Title")
-        //     .await
-        //     .unwrap();
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     // let mut watcher = notify::recommended_watcher(|res| match res {
