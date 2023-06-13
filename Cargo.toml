@@ -1,18 +1,11 @@
-[workspace.package]
-version = "0.1.0"
-authors = ["Zavier D. <zavier.a.divelbiss@proton.me>"]
-edition = "2021"
-license = "AGPL-3.0-only"
-
-
 [workspace]
-members = ["simse", "simse_config"]
 resolver = "2"
+members = ["simse", "simse-config"]
 
 [profile.dev]
-opt-level = 0
-overflow-checks = true
+opt-level = 1
 codegen-units = 16
+overflow-checks = true
 
 [profile.release]
 lto = true

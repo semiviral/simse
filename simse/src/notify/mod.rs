@@ -1,10 +1,10 @@
+pub mod smtp;
+
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{trace, warn};
-
-pub mod smtp;
 
 #[derive(Debug)]
 pub struct Notification {
@@ -76,7 +76,7 @@ async fn notifier_loop(mut reciever: Receiver<Notification>) -> Result<()> {
 
             let message = message_template
                 .clone()
-                .subject(crate::notifiers::smtp::format_subject_title(
+                .subject(smtp::format_subject_title(
                     subject_tempalate,
                     &notification.title,
                 ))

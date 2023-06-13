@@ -1,13 +1,15 @@
 [package]
 name = "simse"
 version = "0.1.0"
+authors = ["Zavier D. <zavier.a.divelbiss@proton.me>"]
 edition = "2021"
+license = "AGPL-3.0-only"
 
-[dependencies.simse_config]
-path = "../simse_config"
+
+[dependencies.simse-config]
+path = "../simse-config/"
 
 [dependencies]
-yew = { version = "*", features = ["csr"] }
 serde = { version = "*", features = ["derive"] }
 versions = { version = "*", features = ["serde"] }
 lettre = { version = "*", default-features = false, features = [
@@ -39,3 +41,5 @@ chrono = "*"
 base64 = "*"
 anyhow = "*"
 toml = "*"
+
+
