@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["simse", "simse-config"]
+members = ["xtask", "simse", "simse-config", "simse-web"]
 
 [profile.dev]
 opt-level = 1
