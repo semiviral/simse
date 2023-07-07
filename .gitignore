@@ -15,3 +15,6 @@ Cargo.lock
 
 # Allow local config without exposing secrets.
 .config.toml
+
+# Ignore `trunk` generated artifacts
+dist/

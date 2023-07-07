@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Zavier D. <zavier.a.divelbiss@proton.me>"]
 edition = "2021"
 license = "AGPL-3.0-only"
+default-run = "simse"
 
 
 [dependencies.simse-config]
@@ -41,5 +42,3 @@ chrono = "*"
 base64 = "*"
 anyhow = "*"
 toml = "*"
-
-
