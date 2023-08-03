@@ -3,9 +3,4 @@
         "editor.defaultFormatter": "rust-lang.rust-analyzer"
     },
     "rust-analyzer.check.allTargets": false,
-    "rust-analyzer.linkedProjects": [
-        "xtask/Cargo.toml",
-        "simse-backend/Cargo.toml",
-        "simse-frontend/Cargo.toml",
-    ]
 }

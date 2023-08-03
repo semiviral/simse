@@ -1,0 +1,40 @@
+[package]
+name = "simse"
+version = "0.1.0"
+authors = ["Zavier D. <zavier.a.divelbiss@proton.me>"]
+edition = "2021"
+license = "AGPL-3.0-only"
+
+
+[dependencies]
+serde = { version = "*", features = ["derive"] }
+serde_yaml = "*"
+
+tracing = "*"
+tracing-subscriber = "*"
+tokio = { version = "*", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+    "parking_lot",
+    "fs",
+    "net",
+    "io-util",
+    "signal",
+] }
+axum = "*"
+
+lettre = { version = "*", default-features = false, features = [
+    "builder",
+    "smtp-transport",
+    "hostname",
+    "tokio1",
+    "native-tls",
+    "tokio1-native-tls",
+    "serde",
+    "tracing",
+] }
+
+versions = { version = "*", features = ["serde"] }
+once_cell = "*"
+regex = "*"
+anyhow = "*"
