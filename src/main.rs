@@ -3,7 +3,6 @@ mod notify;
 mod routes;
 
 use once_cell::sync::{Lazy, OnceCell};
-use tokio::io::{AsyncRead, AsyncWrite};
 
 pub fn agent_string() -> &'static str {
     static AGENT_STRING: Lazy<String> =
@@ -23,12 +22,6 @@ fn get_config() -> &'static config::Config {
         serde_yaml::from_str(&config_str).expect("failed to parse configuration")
     })
 }
-
-trait AsyncReadWrite: AsyncRead + AsyncWrite {}
-impl<RW: AsyncRead + AsyncWrite> AsyncReadWrite for RW {}
-
-trait AsyncBufReadWriteUnpin: AsyncRead + AsyncWrite + Unpin {}
-impl<RWU: AsyncRead + AsyncWrite + Unpin> AsyncBufReadWriteUnpin for RWU {}
 
 #[tokio::main]
 async fn main() {
@@ -51,11 +44,12 @@ async fn main() {
     //     .watch(watch_path, notify::RecursiveMode::Recursive)
     //     .unwrap();
     // info!("Watching path for changes: {:?}", watch_path);
+    let server_config = &get_config().server;
 
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3006));
-    tracing::info!("Server listening @{}", addr);
+    let socket = std::net::SocketAddr::from((server_config.address, server_config.port));
+    tracing::info!("Server listening @{}", socket);
 
-    axum::Server::bind(&addr)
+    axum::Server::bind(&socket)
         .serve(routes::build().into_make_service())
         .with_graceful_shutdown(shutdown_signal())
         .await

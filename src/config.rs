@@ -9,16 +9,10 @@ fn serde_true() -> bool {
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    pub name: String,
     pub server: Server,
     pub storage: Storage,
     pub notifiers: Notifiers,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Password {
-    Value(String),
-    Path(PathBuf),
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +45,7 @@ pub enum StorageKind {
         database: String,
         schema: String,
         username: String,
-        password: Option<String>,
+        passfile: PathBuf,
         // tls: Option<Tls>,
     },
 
@@ -92,7 +86,7 @@ pub struct SmtpNotifier {
     pub tls: SmtpTlsMode,
     pub timeout: u64,
     pub username: String,
-    pub password: Option<String>,
+    pub passfile: PathBuf,
     pub to: Mailbox,
     pub from: Mailbox,
     pub subject: String,

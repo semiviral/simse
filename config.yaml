@@ -1,6 +1,19 @@
 server:
+  # DNS name of the server.
+  #
+  # This effectively equates to what is after
+  # the `@` in your users' MXIDs.
+  name: "example.com"
+
   address: 0.0.0.0
   port: 9005
+
+  keys:
+    keyfile: "/path/to/key/file"
+    
+    old_keys:
+      - value: "soa;idfastouathjadfkjms;dlmkfaslkdf"
+        expired_ts: 12345
 
 storage:
   postgresql:

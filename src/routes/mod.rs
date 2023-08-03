@@ -1,4 +1,5 @@
-pub mod federation;
+mod federation;
+mod key;
 
 use axum::{
     http::StatusCode,
@@ -11,6 +12,7 @@ pub fn build() -> Router {
         .fallback(fallback)
         .route("/health", get(health).options(health))
         .nest("/_matrix/federation/", federation::routes::build())
+        .nest("/_matrix/key/", key::routes::build())
 }
 
 async fn fallback(uri: axum::http::Uri) -> impl IntoResponse {
