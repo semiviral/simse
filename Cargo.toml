@@ -41,6 +41,11 @@ lettre = { version = "*", default-features = false, features = [
     "tracing",
 ] }
 
+
+rand = "*"
+ed25519-dalek = "*"
+base64 = "*"
+
 versions = { version = "*", features = ["serde"] }
 once_cell = "*"
 regex = "*"

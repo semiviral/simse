@@ -1,10 +1,41 @@
 pub mod smtp;
 
+use crate::config::{NotifierConfig, SmtpNotifierConfig};
 use anyhow::Result;
+use lettre::{
+    message::{header::ContentType, Mailbox, MessageBuilder},
+    transport::smtp::{authentication::Credentials, AsyncSmtpTransport},
+    Message, Tokio1Executor,
+};
 use once_cell::sync::OnceCell;
 use std::time::Duration;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{trace, warn};
+use tokio::sync::mpsc::Sender;
+
+#[derive(Debug)]
+struct SmtpNotifier {
+    transport: AsyncSmtpTransport<Tokio1Executor>,
+    message_template: MessageBuilder,
+    subject_template: String,
+    timeout: Duration,
+}
+
+impl SmtpNotifier {
+    fn build_message(&mut self, notification: &Notification) -> Result<Message> {
+        todo!("finish creating the build_message function");
+
+        let message = self
+            .message_template
+            .clone()
+            .to(Mailbox::new(loop {}, loop {}))
+            .subject(smtp::format_subject_title(
+                &self.subject_template,
+                &notification.title,
+            ))
+            .body(notification.body.clone())?;
+
+        Ok(message)
+    }
+}
 
 #[derive(Debug)]
 pub struct Notification {
@@ -23,75 +54,78 @@ pub async fn send_notification(notification: Notification, timeout: Duration) ->
     Ok(())
 }
 
-pub fn spawn_notifier() -> Result<()> {
+pub async fn spawn_notifier(notifiers: &NotifierConfig) -> Result<()> {
     let (sender, reciever) = tokio::sync::mpsc::channel(16);
 
-    if NOTIFICATIONS.set(sender).is_err() {
-        anyhow::bail!("notification thread has already been spawned");
-    }
+    NOTIFICATIONS
+        .set(sender)
+        .expect("notification thread has already been spawned");
 
-    tokio::spawn(notifier_loop(reciever));
+    let smtp_notifier = match notifiers.smtp.as_ref() {
+        Some(smtp_config) => Some(build_smtp_notifier(smtp_config).await?),
+        None => None,
+    };
+
+    tokio::spawn(async move {
+        // Take mutable ownership of `receiver`.
+        let mut reciever = reciever;
+        let mut smtp_notifier = smtp_notifier;
+
+        loop {
+            let Some(notification) = reciever.recv().await else { break };
+
+            if let Err(err) = try_send_smtp(smtp_notifier.as_mut(), &notification).await {
+                warn!("SMTP notifier failed: {err:?}");
+            }
+        }
+
+        tracing::info!("Notifier channels closed; task closing.");
+
+        anyhow::Result::<(), anyhow::Error>::Ok(())
+    });
 
     Ok(())
 }
 
-async fn notifier_loop(mut reciever: Receiver<Notification>) -> Result<()> {
-    let smtp = OnceCell::new();
-    if let Some(smtp_config) = &crate::get_config().notifiers.smtp {
-        use lettre::{
-            message::header::ContentType,
-            transport::smtp::{authentication::Credentials, AsyncSmtpTransport},
-            Message, Tokio1Executor,
-        };
+async fn try_send_smtp(
+    smtp_notifier: Option<&mut SmtpNotifier>,
+    notification: &Notification,
+) -> Result<()> {
+    use lettre::AsyncTransport;
 
-        let smtp_notifier: AsyncSmtpTransport<Tokio1Executor> =
-            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_config.host)
-                .unwrap()
-                .port(smtp_config.port)
-                .credentials(Credentials::new(
-                    smtp_config.username.clone(),
-                    String::new(), // TODO smtp_config.password.as_ref().unwrap().clone(),
-                ))
-                .build();
+    let Some(smtp_notifier) = smtp_notifier else { return Ok(()) };
 
-        let message_template = Message::builder()
-            .from(smtp_config.from.clone())
-            .to(smtp_config.to.clone())
-            .header(ContentType::TEXT_PLAIN);
+    let message = smtp_notifier.build_message(notification)?;
+    tokio::time::timeout(smtp_notifier.timeout, smtp_notifier.transport.send(message)).await??;
 
-        let subject_template = smtp_config.subject.clone();
-
-        let timeout = Duration::from_secs(smtp_config.timeout);
-
-        smtp.set((smtp_notifier, message_template, subject_template, timeout))
-            .map_err(|_| ())
-            .unwrap();
-    }
-
-    loop {
-        let Some(notification) = reciever.recv().await else { break };
-
-        if let Some((smtp_notifier, message_template, subject_tempalate, timeout)) = smtp.get() {
-            use lettre::AsyncTransport;
-
-            let message = message_template
-                .clone()
-                .subject(smtp::format_subject_title(
-                    subject_tempalate,
-                    &notification.title,
-                ))
-                .body(notification.body)
-                .unwrap();
-
-            match tokio::time::timeout(*timeout, smtp_notifier.send(message)).await {
-                Ok(Err(err)) => warn!("Failed to send SMTP notification: {:?}", err),
-                Err(_) => warn!("Failed to send SMTP notification: timeout elapsed"),
-                _ => trace!("Notification successfully delivered via SMTP."),
-            }
-        }
-    }
-
-    tracing::info!("Notifier channels closed; task closing.");
+    trace!("Notification successfully delivered via SMTP.");
 
     Ok(())
+}
+
+async fn build_smtp_notifier(smtp_config: &SmtpNotifierConfig) -> anyhow::Result<SmtpNotifier> {
+    debug!("Starting up SMTP notifier...");
+
+    let passfile_path = &smtp_config.passfile;
+    debug!("Reading password from: {}", passfile_path.to_string_lossy());
+    let password = tokio::fs::read_to_string(passfile_path).await?;
+
+    let smtp_notifier = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_config.host)?
+        .port(smtp_config.port)
+        .credentials(Credentials::new(smtp_config.username.clone(), password))
+        .build();
+
+    let message_template = Message::builder()
+        .from(smtp_config.sender.clone())
+        .header(ContentType::TEXT_PLAIN);
+
+    let subject_template = smtp_config.subject.clone();
+    let timeout = Duration::from_secs(smtp_config.timeout);
+
+    Ok(SmtpNotifier {
+        transport: smtp_notifier,
+        message_template,
+        subject_template,
+        timeout,
+    })
 }
