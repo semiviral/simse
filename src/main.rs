@@ -3,7 +3,9 @@ mod config;
 mod notify;
 mod routes;
 
+use anyhow::Result;
 use args::*;
+use base64::Engine;
 use clap::Parser;
 use once_cell::sync::Lazy;
 
@@ -19,15 +21,7 @@ async fn main() {
         Arguments::Crypto(CryptoArguments::Genkey(args)) => genkey(args).await,
 
         Arguments::Server(args) => {
-            let subscriber = tracing_subscriber::fmt()
-                .with_max_level(args.log_level)
-                .with_thread_ids(args.log_thread_id)
-                .compact()
-                .finish();
-
-            tracing::subscriber::set_global_default(subscriber)
-                .expect("failed to configure global logger");
-            info!("Logging configured and ready.");
+            setup_logging(&args).expect("failed to configure global logger");
 
             run_server(args).await
         }
@@ -37,7 +31,7 @@ async fn main() {
     trace!("Reached safe shutdown point.");
 }
 
-async fn run_server(args: ServerArguments) -> anyhow::Result<()> {
+async fn run_server(args: ServerArguments) -> Result<()> {
     let config: config::Config = {
         assert!(
             &args.config_path.exists(),
@@ -48,6 +42,10 @@ async fn run_server(args: ServerArguments) -> anyhow::Result<()> {
         let config_str = std::fs::read_to_string(&args.config_path)?;
         serde_yaml::from_str(&config_str)?
     };
+
+    let signing_key = load_signing_key(config.server.keys.keyfile).await?;
+
+    debug!("Signing key: {:?}", signing_key);
 
     if let Err(err) = notify::spawn_notifier(&config.notifiers).await {
         error!("Failed to spawn notifier: {err:?}");
@@ -64,8 +62,43 @@ async fn run_server(args: ServerArguments) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn genkey(args: GenKeyArguments) -> anyhow::Result<()> {
-    use base64::engine::{general_purpose::STANDARD_NO_PAD, Engine};
+fn setup_logging(args: &ServerArguments) -> Result<()> {
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(args.log_level)
+        .with_thread_ids(args.log_thread_id)
+        .compact()
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)?;
+    info!("Logging configured and ready.");
+
+    Ok(())
+}
+
+async fn load_signing_key(
+    keyfile_path: impl AsRef<std::path::Path>,
+) -> Result<(String, ed25519_dalek::Keypair)> {
+    let keyfile_path = keyfile_path.as_ref();
+
+    debug!(
+        "Loading signing key from file: {}",
+        keyfile_path.to_string_lossy()
+    );
+
+    let file_data = tokio::fs::read_to_string(keyfile_path).await?;
+    let (key_name, key_material_base64) = file_data.split_once(' ').ok_or(anyhow::Error::msg(
+        r#"keyfile is improperly formatted; expected "keyname keymaterial" format"#,
+    ))?;
+
+    let key_material =
+        base64::engine::general_purpose::STANDARD_NO_PAD.decode(key_material_base64)?;
+    let keypair = ed25519_dalek::Keypair::from_bytes(key_material.as_ref())?;
+
+    Ok((key_name.to_owned(), keypair))
+}
+
+async fn genkey(args: GenKeyArguments) -> Result<()> {
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
     use ed25519_dalek::Keypair;
     use rand::{rngs::OsRng, Rng};
 
