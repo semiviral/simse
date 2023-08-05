@@ -18,3 +18,7 @@ Cargo.lock
 
 # Ignore `trunk` generated artifacts
 dist/
+
+#### User added ####
+
+/.devenv

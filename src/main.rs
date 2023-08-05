@@ -1,24 +1,31 @@
+mod args;
 mod config;
 mod notify;
 mod routes;
 
+use clap::Parser;
 use once_cell::sync::{Lazy, OnceCell};
 
-pub fn agent_string() -> &'static str {
-    static AGENT_STRING: Lazy<String> =
-        Lazy::new(|| format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
+static ARGS: Lazy<args::Arguments> = Lazy::new(args::Arguments::parse);
 
-    &AGENT_STRING
-}
+static AGENT_STRING: Lazy<String> =
+    Lazy::new(|| format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
 
 fn get_config() -> &'static config::Config {
     static CONFIG: OnceCell<config::Config> = OnceCell::new();
 
     CONFIG.get_or_init(|| {
-        // TODO take --config.file as a cmdline argument
-        let config_path = option_env!("SIMSE_CONFIG_PATH").unwrap_or("config.yaml");
+        let config_path = &ARGS.config_path;
+
+        assert!(
+            config_path.exists(),
+            "Specified configuration file does not exist: {:?}",
+            config_path
+        );
+
         let config_str =
             std::fs::read_to_string(config_path).expect("configuration does not exist at path");
+
         serde_yaml::from_str(&config_str).expect("failed to parse configuration")
     })
 }

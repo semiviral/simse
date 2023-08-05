@@ -9,7 +9,6 @@ fn serde_true() -> bool {
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub name: String,
     pub server: Server,
     pub storage: Storage,
     pub notifiers: Notifiers,
@@ -24,9 +23,25 @@ pub struct Tls {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ServerKeysOld {
+    pub value: String,
+    pub expired_ts: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ServerKeys {
+    pub keyfile: PathBuf,
+    pub oldkeys: Vec<ServerKeysOld>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Server {
+    pub name: String,
+
     pub address: Ipv4Addr,
     pub port: u16,
+
+    pub keys: ServerKeys,
 }
 
 #[derive(Debug, Deserialize)]

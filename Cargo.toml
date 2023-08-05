@@ -10,6 +10,8 @@ license = "AGPL-3.0-only"
 serde = { version = "*", features = ["derive"] }
 serde_yaml = "*"
 
+clap = { version = "*", features = ["derive", "env"] }
+
 tracing = "*"
 tracing-subscriber = "*"
 tokio = { version = "*", default-features = false, features = [
@@ -22,6 +24,11 @@ tokio = { version = "*", default-features = false, features = [
     "signal",
 ] }
 axum = "*"
+reqwest = { version = "*", default-features = false, features = [
+    "native-tls",
+    "gzip",
+    "json",
+] }
 
 lettre = { version = "*", default-features = false, features = [
     "builder",

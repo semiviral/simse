@@ -50,7 +50,7 @@ async fn notifier_loop(mut reciever: Receiver<Notification>) -> Result<()> {
                 .port(smtp_config.port)
                 .credentials(Credentials::new(
                     smtp_config.username.clone(),
-                    smtp_config.password.as_ref().unwrap().clone(),
+                    String::new(), // TODO smtp_config.password.as_ref().unwrap().clone(),
                 ))
                 .build();
 

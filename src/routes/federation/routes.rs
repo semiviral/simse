@@ -9,5 +9,5 @@ pub fn build() -> Router {
 }
 
 async fn version() -> impl IntoResponse {
-    (StatusCode::OK, crate::agent_string())
+    (StatusCode::OK, crate::AGENT_STRING.as_str())
 }
