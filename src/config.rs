@@ -46,7 +46,7 @@ pub struct ServerKeysOld {
 
 #[derive(Debug, Deserialize)]
 pub struct ServerKeys {
-    pub keyfile: PathBuf,
+    pub keyfiles: Vec<PathBuf>,
     pub old_keys: Option<Vec<ServerKeysOld>>,
 }
 

@@ -79,7 +79,7 @@ pub async fn spawn_notifier(notifiers: &NotifierConfig) -> Result<()> {
             }
         }
 
-        tracing::info!("Notifier channels closed; task closing.");
+        info!("Notifier channels closed; task closing.");
 
         anyhow::Result::<(), anyhow::Error>::Ok(())
     });
